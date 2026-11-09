@@ -4,8 +4,10 @@ from langchain_text_splitters import MarkdownHeaderTextSplitter, TokenTextSplitt
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import (
     HumanMessagePromptTemplate,
-    ChatPromptTemplate
+    ChatPromptTemplate,
+    PromptTemplate
 )
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
 from langchain_chroma import Chroma
@@ -19,6 +21,16 @@ import json
 load_dotenv()
 
 groq_api_key=os.getenv("GROQ_API_KEY")
+
+# LLM
+chat = ChatGroq(
+    model="openai/gpt-oss-120b",
+    api_key=groq_api_key,
+    temperature=0
+)
+
+# Converts the AIMessage object AI output into a string 
+str_output_parser = StrOutputParser()
 
 
 # Load the PDF
@@ -99,16 +111,6 @@ if not os.path.exists("formatted_lectures.json"):
         prompt_template_formatting_h
     ])
 
-
-    chat = ChatGroq(
-        model="openai/gpt-oss-120b",
-        api_key=groq_api_key,
-        temperature=0
-    )
-
-    str_output_parser = StrOutputParser()
-
-
     chain_formatting = (
         chat_prompt_template_formatting
         | chat
@@ -187,3 +189,88 @@ retriever = vectorstore.as_retriever(
         "lambda_mult": 0.7
     }
 )
+
+
+
+""" Using the retriever to feed 2 documents as context in a prompt sent to the LLM
+    to answer a user question about the subject
+"""
+
+
+PROMPT_CREATING_QUESTION = """
+Lecture: {lecture}<br>
+Title: {title}<br>
+Body: {body}
+"""
+# Format the student's question (lecture, title, body) into a single text query
+# The query is sent to the retriever, which searches ChromaDB and returns
+# the 2 most relevant document chunks to provide as context to the LLM.
+prompt_creating_question = PromptTemplate.from_template(
+    PROMPT_CREATING_QUESTION
+)
+
+
+
+# System message
+PROMPT_RETRIEVING_S = """
+You are a helpful Tableau course assistant.
+Answer questions based on the retrieved course content.
+Do not invent information or use knowledge outside the provided context.
+If the answer isn't available in the context, say so.
+"""
+
+prompt_retrieving_s = SystemMessage(
+    content=PROMPT_RETRIEVING_S
+)
+
+
+
+# Human message, including the 2 retrived documents and the and formatted student question
+PROMPT_TEMPLATE_RETRIEVING_H = """
+Context:
+{context}
+
+Student question:
+{question}
+"""
+
+prompt_template_retrieving_h = HumanMessagePromptTemplate.from_template(
+    PROMPT_TEMPLATE_RETRIEVING_H
+)
+
+
+# The prompt sent to the LLM, including:
+# System message, Human message that includes the context + user question (lecture, title, body)
+chat_prompt_template_retrieving = ChatPromptTemplate.from_messages([
+    prompt_retrieving_s,
+    prompt_template_retrieving_h
+])
+
+
+chain_retrieving = (
+    prompt_creating_question                     # StringPromptValue object containing the injected lecture, title and body
+    | RunnableLambda(lambda x: x.to_string())    # Turn the object into a string, because the retriever needs a text query to search the vector database
+    | {                                          # RunnableParallel that create the human prompt for the LLM
+        "context": retriever,                    # Documents retrieved fromt chroma db by the retriever
+        "question": RunnablePassthrough()        # The question including the lecture, title and body
+    }
+    | chat_prompt_template_retrieving            # The prompt including system message and human message
+    | chat                                       # LLM receiving the full prompt
+    | str_output_parser                          # LLM's output to string
+)
+
+""" retriever receives the formatted question and returns 2 relevant documents
+    RunnablePassthrough() the formatted question and returns the same formatted question
+    {
+        "context": [Document(...), Document(...)],
+        "question": "Lecture: ... Title: ... Body: ..."
+    }
+"""
+
+result = chain_retrieving.invoke({
+    "lecture": "Adding a custom calculation",
+    "title": "Why are we using SUM here? It's unclear to me.",
+    "body": "This question refers to calculating the GM%."
+})
+
+print(result)
