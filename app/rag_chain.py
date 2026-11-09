@@ -31,6 +31,53 @@ def format_context(dictionary):
     return new_dict
 
 
+"""
+                   +-------------+                 
+                   | PromptInput |                 
+                   +-------------+                 
+                           *                       
+                  +----------------+               
+                  | PromptTemplate |               
+                  +----------------+               
+                           *                       
+                      +--------+                   
+                      | Lambda |                   
+                      +--------+                   
+                           *                       
+         +---------------------------------+       
+         | Parallel<context,question>Input |       
+         +---------------------------------+       
+                  ***            ***               
+              **                      **           
++----------------------+          +-------------+  
+| VectorStoreRetriever |          | Passthrough |  
++----------------------+          +-------------+  
+                  ***            ***               
+                       **    **                    
+         +----------------------------------+      
+         | Parallel<context,question>Output |      
+         +----------------------------------+      
+                           *                       
+                  +----------------+               
+                  | format_context |               
+                  +----------------+               
+                           *                       
+                +--------------------+             
+                | ChatPromptTemplate |             
+                +--------------------+             
+                           *                       
+                     +----------+                  
+                     | ChatGroq |                  
+                     +----------+                  
+                           *                       
+                 +-----------------+               
+                 | StrOutputParser | 
+                 +-----------------+                             
+                           *                       
+              +-----------------------+            
+              | StrOutputParserOutput |            
+              +-----------------------+  
+"""
 chain_retrieving = (
     prompt_creating_question                     # StringPromptValue object containing the injected lecture, title and body
     | RunnableLambda(lambda x: x.to_string())    # Turn the object into a string, because the retriever needs a text query to search the vector database
