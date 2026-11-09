@@ -1,0 +1,6 @@
+langchain_env/
+.ipynb_checkpoints/
+.env
+__pycache__/
+chroma_db/
+*.ipynb
