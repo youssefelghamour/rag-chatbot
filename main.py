@@ -1,4 +1,5 @@
 from langchain_community.document_loaders.pdf import PyPDFLoader
+from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_text_splitters import MarkdownHeaderTextSplitter, TokenTextSplitter
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import (
@@ -7,6 +8,7 @@ from langchain_core.prompts import (
 )
 from langchain_core.output_parsers import StrOutputParser
 from langchain_groq import ChatGroq
+from langchain_chroma import Chroma
 from dotenv import load_dotenv
 import os
 import time
@@ -160,5 +162,28 @@ token_splitter = TokenTextSplitter(
 docs_list_tokens_split = token_splitter.split_documents(docs_list_md_split)
 
 
-print(len(docs_list_md_split))
-print(len(docs_list_tokens_split))
+
+""" Embedding the documents, storing them in vector db, and creating a retriever to query the vector db """
+
+embedding = FastEmbedEmbeddings()
+
+# Create the db only if it doesn't exist
+if not os.path.exists("./chroma_db"):
+    vectorstore = Chroma.from_documents(
+        documents=docs_list_tokens_split,
+        embedding=embedding,
+        persist_directory="./chroma_db"
+    )
+else:
+    vectorstore = Chroma(
+        persist_directory="./chroma_db",
+        embedding_function=embedding
+    )
+
+retriever = vectorstore.as_retriever(
+    search_type="mmr",
+    search_kwargs={
+        "k": 2,
+        "lambda_mult": 0.7
+    }
+)
