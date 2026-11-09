@@ -1,5 +1,5 @@
 from langchain_community.document_loaders.pdf import PyPDFLoader
-from langchain_text_splitters import MarkdownHeaderTextSplitter
+from langchain_text_splitters import MarkdownHeaderTextSplitter, TokenTextSplitter
 from langchain_core.messages import SystemMessage
 from langchain_core.prompts import (
     HumanMessagePromptTemplate,
@@ -131,11 +131,6 @@ if not os.path.exists("formatted_lectures.json"):
         # Add delays between batches to let LLM token count limit refresh after 6 seconds
         time.sleep(7)
 
-
-    # Replace the original content with the new corrected content
-    for i, j in zip(docs_list_md_split, string_list_formatted):
-        i.page_content = j
-
     # Cache the fortmatted output from the LLM in a JSON file to avoid running the LLM request each time
     with open("formatted_lectures.json", "w", encoding="utf-8") as f:
         json.dump(string_list_formatted, f, ensure_ascii=False, indent=4)
@@ -149,9 +144,21 @@ else:
 assert len(string_list_formatted) == len(docs_list_md_split), \
     "Mismatch between original and formatted lectures"
 
+# Replace the original content with the new corrected content
 for doc, formatted_text in zip(docs_list_md_split, string_list_formatted):
     doc.page_content = formatted_text
 
 
-print(string_list_split[0])
-print(string_list_formatted[0])
+
+# Split documents into smaller chunks of 500 tokens each
+token_splitter = TokenTextSplitter(
+    encoding_name="cl100k_base",
+    chunk_size=500,
+    chunk_overlap=50
+)
+
+docs_list_tokens_split = token_splitter.split_documents(docs_list_md_split)
+
+
+print(len(docs_list_md_split))
+print(len(docs_list_tokens_split))
