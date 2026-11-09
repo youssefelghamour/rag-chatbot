@@ -1,5 +1,21 @@
 from langchain_community.document_loaders.pdf import PyPDFLoader
 from langchain_text_splitters import MarkdownHeaderTextSplitter
+from langchain_core.messages import SystemMessage
+from langchain_core.prompts import (
+    HumanMessagePromptTemplate,
+    ChatPromptTemplate
+)
+from langchain_core.output_parsers import StrOutputParser
+from langchain_groq import ChatGroq
+from dotenv import load_dotenv
+import os
+import time
+
+
+
+load_dotenv()
+
+groq_api_key=os.getenv("GROQ_API_KEY")
 
 
 # Load the PDF
@@ -24,10 +40,96 @@ md_splitter = MarkdownHeaderTextSplitter(
     headers_to_split_on=headers_to_split_on
 )
 
+"""
+docs_list_md_split = [
+    Document(metadata={
+        'Section Title': '',
+        'Lecture Title': ''},
+        page_content=""
+    }
+] 
+"""
 docs_list_md_split = md_splitter.split_text(string_list_concat)
 
 
-for doc in docs_list_md_split[:3]:
-    print("Metadata:", doc.metadata)
-    print("Content:", doc.page_content[:300])
-    print("-" * 50)
+""" Trasnform the Text using a LLM so it's readable: 
+        - Fix cut off words
+        - Correct the words
+        - Fix the punctuation
+"""
+
+# List of all contents from docs_list_md_split
+string_list_split = [doc.page_content for doc in docs_list_md_split]
+# print([content[:50] + "..." for content in string_list_split])
+
+
+# System prompt
+PROMPT_FORMATTING_S = """
+Improve the following Tableau lecture transcript by:
+- Splitting the text into meaningful paragraphs
+- Correcting any misplaced punctuation
+- Fixing mistranscribed words (e.g., changing 'tableaux' to 'Tableau')
+"""
+
+# Human prompt template
+PROMPT_TEMPLATE_FORMATTING_H = """
+This is the transcript:
+{lecture_transcript}
+"""
+
+
+prompt_formatting_s = SystemMessage(
+    content=PROMPT_FORMATTING_S
+)
+
+prompt_template_formatting_h = HumanMessagePromptTemplate.from_template(
+    PROMPT_TEMPLATE_FORMATTING_H
+)
+
+chat_prompt_template_formatting = ChatPromptTemplate.from_messages([
+    prompt_formatting_s,
+    prompt_template_formatting_h
+])
+
+
+chat = ChatGroq(
+    model="openai/gpt-oss-120b",
+    api_key=groq_api_key,
+    temperature=0
+)
+
+str_output_parser = StrOutputParser()
+
+
+chain_formatting = (
+    chat_prompt_template_formatting
+    | chat
+    | str_output_parser
+)
+
+"""
+string_list_formatted = chain_formatting.batch(
+    string_list_split,
+    config={"max_concurrency": 3}  # 3 Active tasks/contents in parallel
+)
+"""
+
+# Sequentially instead of parallel to avoid LLM rate limit
+string_list_formatted = []
+
+for lecture in string_list_split:
+    result = chain_formatting.invoke({
+        "lecture_transcript": lecture
+    })
+    string_list_formatted.append(result)
+    # Add delays between batches to let LLM token count limit refresh after 6 seconds
+    time.sleep(7)
+
+
+# Replace the original content with the new corrected content
+for i, j in zip(docs_list_md_split, string_list_formatted):
+    i.page_content = j
+
+
+print(string_list_split[0])
+print(string_list_formatted[0])
